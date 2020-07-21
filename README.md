@@ -13,4 +13,7 @@ Python3 code to measure equivalent widths, derive stellar parameters, and determ
 ## XSpect - EA (Elemental Abundances)
 
 ### Python Required Packages
- - 
+ - Numpy
+ - Matplotlib
+ - Scipy
+ - Astropy 
