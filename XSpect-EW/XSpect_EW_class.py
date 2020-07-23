@@ -23,9 +23,9 @@ class Spectrum_Data():
         
         #continuum information
         self.continuum = []
+        self.pred_all = []
+        self.pred_var_all = []
         self.obs_err = []
-        self.m_all = []
-        self.C_all = []
         
         #line information
         self.lines = None
@@ -48,26 +48,59 @@ class Spectrum_Data():
         #line - X squared value above threshold or EW = 0
         self.lines_check_flag = None
         
-    def normalize(self, line_width = 1.0, continuum_depth = 3):
+    def normalize_all(self, window_width = 1.5, continuum_depth = 90):
         #loop through orders        
         for i in range(len(self.flux)):
-            #select continuum points
-            self.continuum_scan = Continuum_scan(line_width, continuum_depth)
-            self.continuum_scan.load_data(self.wavelength[i], self.flux[i])
-            self.continuum_scan.scan()
-            cont = self.continuum_scan.get_selected()
-            self.continuum.append(cont)
-            xobs = self.wavelength[i]
-            yobs = self.flux[i]
-            err = np.sqrt(yobs)
-            self.obs_err.append(err)
-            
+
             #use Gaussian Process to fit continuum
-            m,C=Pred_GP(SEKernel,[1.0e+07, 0.1],xobs[cont],yobs[cont],err[cont], xobs)
-            self.m_all.append(m)
-            self.C_all.append(C)
-            sig = np.sqrt(np.diag(C))
-            self.normalized_flux[i] = yobs/m
+            pred, pred_var, cont, err = normalize(i, window_width, continuum_depth)
+            self.continuum.append(cont)
+            self.pred_all.append(pred)
+            self.pred_var_all.append(pred_var)
+            self.obs_err.append(err)
+            self.normalized_flux[i] = self.flux[i]/pred
+
+        self.continuum = np.array(self.continuum)
+        self.pred_var_all = np.array(self.pred_var_all)
+        self.pred_all = np.array(self.pred_all)
+
+    def normalize(self, order, window_width = 1.5, continuum_depth = 90):
+        #print('xobs',len(self.wavelength[order]))
+        err = np.sqrt(self.flux[order])
+        continuum_scan_obj = test_Continuum_scan(window_width, continuum_depth)
+        continuum_scan_obj.load_data(self.wavelength[order],self.flux[order])
+        continuum_scan_obj.scan()
+        cont = continuum_scan_obj.get_selected()
+        
+        #Gaussian Process to fit continuum
+        kernel = np.var(self.flux[order][cont]) * kernels.Matern32Kernel(10)
+        #print("cont", len(self.flux[order][cont]))
+        #kernel = np.var(self.flux[order][cont]) * kernels.ExpSquaredKernel(10)
+        gp = george.GP(kernel,mean=self.flux[order][cont].mean())
+        gp.compute(self.wavelength[order][cont], err[cont])
+        x_pred = self.wavelength[order].copy()
+        pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
+        #print("ln-likelihood: {0:.2f}".format(gp1.log_likelihood(self.flux[order][cont])))
+        params = [gp,self.flux[order][cont]]
+        result = minimize(neg_ln_like, gp.get_parameter_vector(), args = params, jac=grad_neg_ln_like)
+        #print(result)
+        gp.set_parameter_vector(result.x)
+        pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
+        #print("\nFinal ln-likelihood: {0:.2f}".format(gp.log_likelihood(self.flux[order][cont])))
+        return pred, pred_var, cont, err
+
+    def grad_neg_ln_like(self,p, params):
+        params[0].set_parameter_vector(p)
+        neg_ln = (-1)*params[0].grad_log_likelihood(params[1])
+        return neg_ln
+
+    def neg_ln_like(self,p, params):
+        params[0].set_parameter_vector(p)
+        neg_ln = (-1)*params[0].log_likelihood(params[1])
+        return neg_ln
+
+    def S_N(self, order):
+        return self.flux[order]/self.obs_err[order]
 
     def load_normalized(self, name):
         pathnames = glob.glob(name+'*'+'.npy')
@@ -84,12 +117,12 @@ class Spectrum_Data():
             elif '_obs_err' in pathnames[i]:
                 self.obs_err = np.load(pathnames[i])
                 print('errors loaded')
-            elif '_m_all' in pathnames[i]:
-                self.m_all = np.load(pathnames[i])
-                print('m all loaded')
-            # elif '_C_all' in pathnames[i]:
-            #     self.C_all = np.load(pathnames[i])
-            #     print('C all loaded')
+            elif '_pred' in pathnames[i]:
+                self.pred_all = np.load(pathnames[i])
+                print('all preds loaded')
+            elif '_pred_var' in pathnames[i]:
+                self.pred_var_all = np.load(pathnames[i])
+                print('all pred vars loaded')
 
     def save_normalized(self, name):
         #arrays are separated by order
@@ -97,8 +130,8 @@ class Spectrum_Data():
         np.save(name+'_wavelength',self.shifted_wavelength)
         np.save(name+'_cont',self.continuum)
         np.save(name+'_obs_err',self.obs_err)
-        np.save(name+'_m_all',self.m_all)
-        #np.save(name+'_C_all',self.C_all)
+        np.save(name+'_pred',self.pred_all)
+        np.save(name+'_pred_var',self.pred_var_all)
         return None
             
     def wave_shift(self, order, shift):
@@ -260,7 +293,7 @@ class Spectrum_Data():
         flat_wing = self.normalized_flux[order][wind].copy() + ex_params[0]
         flat_wing[other_than_line] = norm 
         xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.wavelength[order][wind]))
-        m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.m_all[order][wind], xtest)
+        m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred[order][wind], xtest)
         samples = multivariate_normal(m,C,500)
         m_plot=m.copy()
         m = (-1)*(m-1)
@@ -299,7 +332,7 @@ class Spectrum_Data():
             coarse_view.set_ylabel('Normalized Flux', size = 14)
             coarse_view.plot(xtest,m_plot, 'k--', alpha = 0.75)
             coarse_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.m_all[order][wind],capsize=0,fmt='k.', label = 'cont')
+                 yerr=2*self.obs_err[order][wind]/self.pred[order][wind],capsize=0,fmt='k.', label = 'cont')
             coarse_view.fill_between(xtest,m_plot+2*np.sqrt(np.diag(C)),
                      m_plot-2*np.sqrt(np.diag(C)),color='k',alpha=0.2)
             coarse_view.plot(xtest,samples.T,alpha=0.1, color='#cccccc')
