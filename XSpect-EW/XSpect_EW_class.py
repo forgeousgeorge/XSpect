@@ -10,6 +10,9 @@ from scipy.optimize import curve_fit
 import glob
 #from scipy.stats import pearsonr as ptest
 from XSpect_EW_func import *
+import george
+from george import kernels
+from scipy.optimize import minimize
 
 #--------------------------------------------------Classes--------------------------------------------------#
 class Spectrum_Data():
@@ -53,21 +56,21 @@ class Spectrum_Data():
         for i in range(len(self.flux)):
 
             #use Gaussian Process to fit continuum
-            pred, pred_var, cont, err = normalize(i, window_width, continuum_depth)
+            pred, pred_var, cont, err = self.normalize(i, window_width, continuum_depth)
             self.continuum.append(cont)
             self.pred_all.append(pred)
             self.pred_var_all.append(pred_var)
             self.obs_err.append(err)
             self.normalized_flux[i] = self.flux[i]/pred
 
-        self.continuum = np.array(self.continuum)
-        self.pred_var_all = np.array(self.pred_var_all)
-        self.pred_all = np.array(self.pred_all)
+        # self.continuum = np.array(self.continuum)
+        # self.pred_var_all = np.array(self.pred_var_all)
+        # self.pred_all = np.array(self.pred_all)
 
     def normalize(self, order, window_width = 1.5, continuum_depth = 90):
         #print('xobs',len(self.wavelength[order]))
         err = np.sqrt(self.flux[order])
-        continuum_scan_obj = test_Continuum_scan(window_width, continuum_depth)
+        continuum_scan_obj = Continuum_scan(window_width, continuum_depth)
         continuum_scan_obj.load_data(self.wavelength[order],self.flux[order])
         continuum_scan_obj.scan()
         cont = continuum_scan_obj.get_selected()
@@ -82,7 +85,7 @@ class Spectrum_Data():
         pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
         #print("ln-likelihood: {0:.2f}".format(gp1.log_likelihood(self.flux[order][cont])))
         params = [gp,self.flux[order][cont]]
-        result = minimize(neg_ln_like, gp.get_parameter_vector(), args = params, jac=grad_neg_ln_like)
+        result = minimize(self.neg_ln_like, gp.get_parameter_vector(), args = params, jac=self.grad_neg_ln_like)
         #print(result)
         gp.set_parameter_vector(result.x)
         pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
@@ -293,7 +296,7 @@ class Spectrum_Data():
         flat_wing = self.normalized_flux[order][wind].copy() + ex_params[0]
         flat_wing[other_than_line] = norm 
         xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.wavelength[order][wind]))
-        m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred[order][wind], xtest)
+        m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred_all[order][wind], xtest)
         samples = multivariate_normal(m,C,500)
         m_plot=m.copy()
         m = (-1)*(m-1)
@@ -332,7 +335,7 @@ class Spectrum_Data():
             coarse_view.set_ylabel('Normalized Flux', size = 14)
             coarse_view.plot(xtest,m_plot, 'k--', alpha = 0.75)
             coarse_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.pred[order][wind],capsize=0,fmt='k.', label = 'cont')
+                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='k.', label = 'cont')
             coarse_view.fill_between(xtest,m_plot+2*np.sqrt(np.diag(C)),
                      m_plot-2*np.sqrt(np.diag(C)),color='k',alpha=0.2)
             coarse_view.plot(xtest,samples.T,alpha=0.1, color='#cccccc')
@@ -561,7 +564,7 @@ class Continuum_scan():
         #values currently viewed for selection
         self.select_window = None
         #standard deviation of selected window
-        self.current_sig = None
+        #self.current_sig = None
         #Size of selection box in x axis
         self.distx = distx
         #Input spectra
@@ -572,13 +575,15 @@ class Continuum_scan():
         self.depth = depth
         return None
     
-    def above_sigma(self):
+    def above_sigma(self): #
         #within window, select points above (max value - depth*sigma)
         current_data_x = self.data[0][self.select_window]
         current_data_y = self.data[1][self.select_window]
-        top_value = current_data_y.max()
-        y_lim = top_value - self.depth*self.current_sig
-        self.select_points[self.select_window] = (current_data_y >=  y_lim)
+        #top_value = current_data_y.max()
+        #y_lim = top_value - self.depth*self.current_sig
+        percent = np.percentile(current_data_y, self.depth)
+        #self.select_points[self.select_window] = (current_data_y >=  y_lim)
+        self.select_points[self.select_window] = (current_data_y >= percent)
         return None
         
     def load_data(self,x,y):
@@ -591,25 +596,30 @@ class Continuum_scan():
         while left_lim < self.data[0][-1]:
             right_lim = left_lim + self.distx
             self.select_window = np.where((self.data[0]>=left_lim)&(self.data[0]<=right_lim))
-            self.current_sig = np.sqrt(self.data[1][self.select_window]).mean()
+            #self.current_sig = np.sqrt(self.data[1][self.select_window]).mean()
+            #self.current_sig = self.data[1][self.select_window].std()
             self.above_sigma()
             left_lim = right_lim
             #self.view_window()
         return None
             
     def view_window(self):
+        percent = np.percentile(self.data[1][self.select_window], self.depth)
         fig = plt.figure()
-        ax = fig.add_subplot(111)
-        #ax.plot(self.data[0], self.data[1], c = '#cccccc', alpha = 0.5)
+        ax = fig.add_subplot(121)
         ax.scatter(self.data[0][self.select_window], self.data[1][self.select_window], c = '#cccccc', alpha = 0.75)
         bool_points = (self.select_points == 1)
         ax.scatter(self.data[0][bool_points],self.data[1][bool_points], c = 'g')
         ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
                 [self.data[1][self.select_window].max(),self.data[1][self.select_window].max()], 'k--')
-        ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
-                [self.data[1][self.select_window].max() - self.depth*self.current_sig,
-                 self.data[1][self.select_window].max() - self.depth*self.current_sig],'g--')
+#         ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
+#                 [self.data[1][self.select_window].max() - self.depth*self.current_sig,
+#                  self.data[1][self.select_window].max() - self.depth*self.current_sig],'g--')
         ax.set_xlim([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]])
+        plt.axhline(percent, color='k', linestyle='dashed', linewidth=1)
+        hist = fig.add_subplot(122)
+        hist.hist(self.data[1][self.select_window])
+        plt.axvline(percent, color='k', linestyle='dashed', linewidth=1)
         plt.show()
         return None
         

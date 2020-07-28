@@ -213,8 +213,8 @@ def combine_files(empty_obj,objects = []):
     final_estimated_shift = []
     final_continuum = []
     final_obs_err = []
-    final_m_all = []
-    final_C_all = []
+    final_pred_all = []
+    final_pred_var_all = []
     
     for j in objects:
 
@@ -226,8 +226,8 @@ def combine_files(empty_obj,objects = []):
             final_estimated_shift.append(j.estimated_shift[i])
             final_continuum.append(j.continuum[i])
             final_obs_err.append(j.obs_err[i])
-            final_m_all.append(j.m_all[i])
-            final_C_all.append(j.C_all[i])
+            final_pred_all.append(j.pred_all[i])
+            final_pred_var_all.append(j.pred_var_all[i])
                
     empty_obj.wavelength = np.array(final_wavelength)
     empty_obj.flux = np.array(final_flux)
@@ -236,8 +236,8 @@ def combine_files(empty_obj,objects = []):
     empty_obj.estimated_shift = np.array(final_estimated_shift)
     empty_obj.continuum = np.array(final_continuum)
     empty_obj.obs_err = np.array(final_obs_err)
-    empty_obj.m_all = np.array(final_m_all)
-    empty_obj.C_all = np.array(final_C_all)
+    empty_obj.pred_all = np.array(final_pred_all)
+    empty_obj.pred_var_all = np.array(final_pred_var_all)
     del final_wavelength
     del final_flux
     del final_norm_flux
@@ -245,8 +245,8 @@ def combine_files(empty_obj,objects = []):
     del final_estimated_shift
     del final_continuum
     del final_obs_err
-    del final_m_all
-    del final_C_all
+    del final_pred_all
+    del final_pred_var_all
     
     return empty_obj
 
