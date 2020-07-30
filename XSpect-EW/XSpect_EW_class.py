@@ -291,13 +291,13 @@ class Spectrum_Data():
         doc.close()
         return np.array(removed_lines)
         
-    def measure_ew(self, i, order, plot = False, ex_params = [0,0,0,0], save_plot = False):
+    def measure_ew(self, i, order, plot = False, ex_params = [0,0,0,0], save_plot = False, window_size = 1.5):
         #extra parameters [0] - shift continuum
         #                 [1] - left boundary in Angstroms
         #                 [2] - right boundary in Angstroms
         #                 [3] - line center in Angstroms
         norm = 1.0
-        wind, found_line, line_bound,dy = get_line_window(self.lines[i],self.shifted_wavelength[order],self.normalized_flux[order],ex_params[1],ex_params[2],ex_params[3])
+        wind, found_line, line_bound,dy = get_line_window(self.lines[i],self.shifted_wavelength[order],self.normalized_flux[order],ex_params[1],ex_params[2],ex_params[3], window_size)
         other_than_line = np.where((self.shifted_wavelength[order][wind] <= line_bound[0])|(self.shifted_wavelength[order][wind] >= line_bound[1]))
         only_line = np.where((self.shifted_wavelength[order][wind] >= line_bound[0])|(self.shifted_wavelength[order][wind] <= line_bound[1]))
         flat_wing = self.normalized_flux[order][wind].copy() + ex_params[0]
@@ -369,7 +369,7 @@ class Spectrum_Data():
             print('extra params:',ex_params)
 
 #------------------------------------------------------------------------------------#        
-    def measure_all_ew(self, exclude_lines= [], plot_lines=[], ex_params = {}):
+    def measure_all_ew(self, exclude_lines= [], plot_lines=[], ex_params = {}, window_size = 1.5):
         for order in range(len(self.wavelength)):
             for i in range(len(self.lines)):
                 if self.lines[i] in exclude_lines:
@@ -386,10 +386,10 @@ class Spectrum_Data():
                         plot = True
                         if self.lines[i] in ex_params.keys():
                             exp = ex_params[self.lines[i]]    
-                    self.measure_ew(i,order, plot, exp)
+                    self.measure_ew(i,order, plot, exp, False, window_size)
         #self.lines_bf_params = np.array(self.lines_bf_params)
         
-    def measure_line_ew(self,line,ex_params=[0,0,0,0], save_line = False, save_plot = False):
+    def measure_line_ew(self,line,ex_params=[0,0,0,0], save_line = False, save_plot = False, window_size = 1.5):
         i = np.where(self.lines == line)[0][0]
         found = False
         for order in range(len(self.wavelength)):
@@ -400,7 +400,7 @@ class Spectrum_Data():
                     self.lines_bf_params[i] = None
                     self.lines_ew_err[i] = np.nan
                     #self.lines_check_flag[i] = False
-                    self.measure_ew(i,order, True, ex_params, save_plot)
+                    self.measure_ew(i,order, True, ex_params, save_plot, window_size)
                     found = True
                     if save_line:
                         with open('line_'+str(line)+'.txt','w') as f:
