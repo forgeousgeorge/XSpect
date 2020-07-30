@@ -25,10 +25,10 @@ class Spectrum_Data():
         self.rv = None #km/s
         
         #continuum information
-        self.continuum = []
-        self.pred_all = []
-        self.pred_var_all = []
-        self.obs_err = []
+        self.continuum = np.full((len(self.wavelength),len(self.wavelength[0])), False)
+        self.pred_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
+        self.pred_var_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
+        self.obs_err = np.zeros((len(self.wavelength),len(self.wavelength[0])))
         
         #line information
         self.lines = None
@@ -56,41 +56,48 @@ class Spectrum_Data():
         for i in range(len(self.flux)):
 
             #use Gaussian Process to fit continuum
-            pred, pred_var, cont, err = self.normalize(i, window_width, continuum_depth)
-            self.continuum.append(cont)
-            self.pred_all.append(pred)
-            self.pred_var_all.append(pred_var)
-            self.obs_err.append(err)
-            self.normalized_flux[i] = self.flux[i]/pred
+            self.normalize(i, window_width, continuum_depth)
+        return None
 
-        # self.continuum = np.array(self.continuum)
-        # self.pred_var_all = np.array(self.pred_var_all)
-        # self.pred_all = np.array(self.pred_all)
-
-    def normalize(self, order, window_width = 1.5, continuum_depth = 90):
-        #print('xobs',len(self.wavelength[order]))
-        err = np.sqrt(self.flux[order])
+    def normalize(self, order, window_width = 1.5, continuum_depth = 90, clip = [-999,-999]):
+        if clip[0] != -999 and clip[1] != -999:
+            #clipped = True
+            clipl = np.where(self.wavelength[order] <= clip[0])[0][-1]
+            clipr = np.where(self.wavelength[order] >= clip[1])[0][0]
+        else:
+            #clipped = False
+            clipl = 0
+            clipr = -1
+ 
+        err = np.sqrt(self.flux[order][clipl:clipr])
         continuum_scan_obj = Continuum_scan(window_width, continuum_depth)
-        continuum_scan_obj.load_data(self.wavelength[order],self.flux[order])
+        continuum_scan_obj.load_data(self.wavelength[order][clipl:clipr],self.flux[order][clipl:clipr])
         continuum_scan_obj.scan()
         cont = continuum_scan_obj.get_selected()
+        del continuum_scan_obj
         
         #Gaussian Process to fit continuum
-        kernel = np.var(self.flux[order][cont]) * kernels.Matern32Kernel(10)
+        kernel = np.var(self.flux[order][clipl:clipr][cont]) * kernels.Matern32Kernel(10)
         #print("cont", len(self.flux[order][cont]))
         #kernel = np.var(self.flux[order][cont]) * kernels.ExpSquaredKernel(10)
-        gp = george.GP(kernel,mean=self.flux[order][cont].mean())
-        gp.compute(self.wavelength[order][cont], err[cont])
-        x_pred = self.wavelength[order].copy()
-        pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
+        gp = george.GP(kernel,mean=self.flux[order][clipl:clipr][cont].mean())
+        gp.compute(self.wavelength[order][clipl:clipr][cont], err[cont])
+        x_pred = self.wavelength[order][clipl:clipr].copy()
+        pred, pred_var = gp.predict(self.flux[order][clipl:clipr][cont], x_pred, return_var=True)
         #print("ln-likelihood: {0:.2f}".format(gp1.log_likelihood(self.flux[order][cont])))
-        params = [gp,self.flux[order][cont]]
+        params = [gp,self.flux[order][clipl:clipr][cont]]
         result = minimize(self.neg_ln_like, gp.get_parameter_vector(), args = params, jac=self.grad_neg_ln_like)
         #print(result)
         gp.set_parameter_vector(result.x)
-        pred, pred_var = gp.predict(self.flux[order][cont], x_pred, return_var=True)
+        pred, pred_var = gp.predict(self.flux[order][clipl:clipr][cont], x_pred, return_var=True)
         #print("\nFinal ln-likelihood: {0:.2f}".format(gp.log_likelihood(self.flux[order][cont])))
-        return pred, pred_var, cont, err
+
+        self.continuum[order][clipl:clipr] = cont
+        self.pred_all[order][clipl:clipr] = pred
+        self.pred_var_all[order][clipl:clipr] = pred_var
+        self.obs_err[order][clipl:clipr] = err
+        self.normalized_flux[order][clipl:clipr] = self.flux[order][clipl:clipr]/pred
+        return None
 
     def grad_neg_ln_like(self,p, params):
         params[0].set_parameter_vector(p)
