@@ -17,3 +17,4 @@ Python3 code to measure equivalent widths, derive stellar parameters, and determ
  - Matplotlib
  - Scipy
  - Astropy 
+ - George - Gaussian Process Regression
