@@ -296,12 +296,18 @@ class Spectrum_Data():
         #                 [1] - left boundary in Angstroms
         #                 [2] - right boundary in Angstroms
         #                 [3] - line center in Angstroms
+        print('line to measure:',self.lines[i])
         norm = 1.0
         wind, found_line, line_bound,dy = get_line_window(self.lines[i],self.shifted_wavelength[order],self.normalized_flux[order],ex_params[1],ex_params[2],ex_params[3], window_size)
         other_than_line = np.where((self.shifted_wavelength[order][wind] <= line_bound[0])|(self.shifted_wavelength[order][wind] >= line_bound[1]))
         only_line = np.where((self.shifted_wavelength[order][wind] >= line_bound[0])|(self.shifted_wavelength[order][wind] <= line_bound[1]))
         flat_wing = self.normalized_flux[order][wind].copy() + ex_params[0]
         flat_wing[other_than_line] = norm 
+        #highlight points within errors of continuum (or 1.0)
+        upper_cont_bounds = self.normalized_flux[order][wind]+ ex_params[0] + 2*self.obs_err[order][wind]/self.pred_all[order][wind]
+        lower_cont_bounds = self.normalized_flux[order][wind]+ ex_params[0] - 2*self.obs_err[order][wind]/self.pred_all[order][wind]
+        points_within_norm = np.where((norm > lower_cont_bounds)&(norm < upper_cont_bounds))
+        #GP fit
         xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.wavelength[order][wind]))
         m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred_all[order][wind], xtest)
         samples = multivariate_normal(m,C,500)
@@ -340,21 +346,22 @@ class Spectrum_Data():
             coarse_view.grid()
             coarse_view.set_xlabel(r'$\rm Wavelength~(\AA)$', size = 14)
             coarse_view.set_ylabel('Normalized Flux', size = 14)
-            coarse_view.plot(xtest,m_plot, 'k--', alpha = 0.75)
+            #coarse_view.plot(xtest,m_plot, 'k--', alpha = 0.75)
             coarse_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='k.', label = 'cont')
+                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='.', color = 'k', label = 'cont', zorder = 2)
+            coarse_view.scatter(self.shifted_wavelength[order][wind][points_within_norm],self.normalized_flux[order][wind][points_within_norm] + ex_params[0], s = 10, c='#4daf4a', zorder = 3, alpha = 0.8)
             coarse_view.fill_between(xtest,m_plot+2*np.sqrt(np.diag(C)),
-                     m_plot-2*np.sqrt(np.diag(C)),color='k',alpha=0.2)
-            coarse_view.plot(xtest,samples.T,alpha=0.1, color='#cccccc')
-            coarse_view.plot([self.lines[i],self.lines[i]],[norm,norm*0.95], 'k--', alpha = 0.75)
-            coarse_view.plot([found_line,found_line],[norm,norm*0.95], 'k-')
-            coarse_view.plot([line_bound[0],line_bound[0]],[norm*1.025,norm*0.95], 'r--', alpha = 0.5)
-            coarse_view.plot([line_bound[1],line_bound[1]],[norm*1.025,norm*0.95], 'r--', alpha = 0.5)
+                     m_plot-2*np.sqrt(np.diag(C)),color='#999999',alpha=0.5)
+            #coarse_view.plot(xtest,samples.T,alpha=0.1, color='#cccccc')
+            coarse_view.plot([self.lines[i],self.lines[i]],[norm,norm*0.95], '--', color = 'k', alpha = 0.75)
+            coarse_view.plot([found_line,found_line],[norm,norm*0.95], '-', color='k')
+            coarse_view.plot([line_bound[0],line_bound[0]],[norm*1.025,norm*0.95], '--', color = '#e41a1c', alpha = 0.5)
+            coarse_view.plot([line_bound[1],line_bound[1]],[norm*1.025,norm*0.95], '--', color = '#e41a1c', alpha = 0.5)
             coarse_view.annotate(str(self.lines[i]), xy = [self.lines[i], norm*1.025])
-            coarse_view.plot(xtest,dy+norm, 'r--', lw = 2)
+            coarse_view.plot(xtest,dy+norm, '--', color = '#e41a1c', lw = 2)
             if plot_gaussian:
-                coarse_view.plot(xtest, fit_gauss, 'b--')
-            coarse_view.plot([xtest[0],xtest[-1]],[norm,norm], 'g--')
+                coarse_view.plot(xtest, fit_gauss, '--', color = '#377eb8', lw= 2)
+            coarse_view.plot([xtest[0],xtest[-1]],[norm,norm], '--', color = '#4daf4a')
             if save_plot:
                 fig_title = str(order) + '_' + str(self.lines[i]) + '.pdf'
                 plt.savefig(fig_title)
