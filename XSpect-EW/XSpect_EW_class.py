@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 #from scipy.optimize import fmin
 from scipy.stats import chisquare
 from scipy.interpolate import interp1d
+from scipy.integrate import simps
 from numpy.random import multivariate_normal
 from astropy.io import fits
 from scipy.optimize import curve_fit
@@ -42,6 +43,10 @@ class Spectrum_Data():
         self.lines_ew = None
         #line - equivalent width error
         self.lines_ew_err = None
+        #line - equivalent width calculated by simpon's rule integration
+        self.lines_ew_simp = None
+        #line - equivalent width error from integraion
+        self.lines_ew_simp_err = None
         #line - best fit parameters for gaussian fit
         self.lines_bf_params = None
         #line - X squared value for gaussian and data
@@ -50,6 +55,9 @@ class Spectrum_Data():
         self.X_thresh = 0.001
         #line - X squared value above threshold or EW = 0
         self.lines_check_flag = None
+        #used to switch between Adamow ew calculation and simpson's rule integration
+        self.temp_line_ew = None
+        self.temp_line_ew_err = None
         
     def normalize_all(self, window_width = 1.5, continuum_depth = 90):
         #loop through orders        
@@ -261,11 +269,29 @@ class Spectrum_Data():
         self.lines_exp = np.zeros((len(self.lines),4))
         self.lines_ew = np.zeros(len(self.lines))
         self.lines_ew_err = np.zeros(len(self.lines))
+        self.lines_ew_simp = np.zeros(len(self.lines))
+        self.lines_ew_simp_err = np.zeros(len(self.lines))
         self.lines_bf_params = np.array([None]*len(self.lines))
         self.lines_gauss_Xsquare = np.array([np.nan]*len(self.lines))
         self.lines_check_flag = np.array([False]*len(self.lines))
         for i in range(len(self.lines)):
             self.lines_exd[i] = np.array([elmnt[i],ep[i],gf[i],rad[i]])
+
+    # def switch_ew_values(self):
+    #     if self.temp_line_ew == None:
+    #         print("switching from Adamow calculation for EW to Simpson's rule integration")
+    #         self.temp_line_ew = self.lines_ew
+    #         self.temp_line_ew_err = self.lines_ew_err
+
+    #         self.lines_ew = self.lines_ew_simp
+    #         self.lines_ew_err = self.lines_ew_simp_err
+    #     else:
+    #         print("switching from Simpson's rule integration for EW to Adamow calculation for EW")
+    #         self.lines_ew = self.temp_line_ew
+    #         self.lines_ew_err = self.temp_line_ew_err
+
+    #         self.temp_line_ew = self.lines_ew_simp
+    #         self.temp_line_ew_err = self.lines_ew_simp_err
         
     def make_ew_doc(self, name,doc_title='STARNAME, PROJECT, YEAR; '):
         doc = open(name, 'w')
@@ -308,7 +334,7 @@ class Spectrum_Data():
         lower_cont_bounds = self.normalized_flux[order][wind]+ ex_params[0] - 2*self.obs_err[order][wind]/self.pred_all[order][wind]
         points_within_norm = np.where((norm > lower_cont_bounds)&(norm < upper_cont_bounds))
         #GP fit
-        xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.wavelength[order][wind]))
+        xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.shifted_wavelength[order][wind]))
         m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred_all[order][wind], xtest)
         samples = multivariate_normal(m,C,500)
         m_plot=m.copy()
@@ -318,18 +344,32 @@ class Spectrum_Data():
         mu_values = np.zeros(len(samples))
         sig_values = np.zeros(len(samples))
         base_values = np.zeros(len(samples))
+        simp_values = np.zeros(len(samples))
         plot_gaussian = False
         for j in range(len(samples)):
             #plt.plot(xtest,(-1)*(samples[j]-1), 'b--')
             bf, err, p0 = gfit_simple(xtest, (-1)*(samples[j]-1), found_line, 0.5,0)
             #print('best fit:', bf, err, p0)
-            if bf[0] > 0.0:
-                if abs(gauss_ew(bf[0], bf[2]*2.355)) > 2 and abs(gauss_ew(bf[0], bf[2]*2.355)) < 175:
-                    samp_ew[j] = abs(gauss_ew(bf[0], bf[2]*2.355))
-                    a_values[j] = bf[0]
-                    mu_values[j] = bf[1]
-                    sig_values[j] = abs(bf[2])
-                    base_values[j] = bf[3]
+            #if bf[0] > 0.0:
+            if abs(gauss_ew(bf[0], bf[2]*2.355)) > 2 and abs(gauss_ew(bf[0], bf[2]*2.355)) < 200:
+                samp_ew[j] = abs(gauss_ew(bf[0], bf[2]*2.355))
+                a_values[j] = bf[0]
+                mu_values[j] = bf[1]
+                sig_values[j] = abs(bf[2])
+                base_values[j] = bf[3]
+
+                #simpson's rule integration
+                x = np.linspace(bf[1]-1.0,bf[1]+1.0, 1000) #integration limits in 1000 steps
+                y = gauss_model(x,bf[0],bf[1],bf[2],abs(bf[3]))-abs(bf[3])
+                simp_values[j] = simps(y,x)*1000
+            else:
+                samp_ew[j] = 0
+                a_values[j] = 0
+                mu_values[j] = 0
+                sig_values[j] = 0
+                base_values[j] = 0
+                simp_values[j] = 0
+
         if plot:
             plot_gaussian = True
         best_bf = np.array([a_values[np.where(a_values!=0)].mean(),mu_values[np.where(mu_values!=0)].mean(),sig_values[np.where(sig_values!=0)].mean(),base_values[np.where(base_values!=0)].mean()])
@@ -339,6 +379,9 @@ class Spectrum_Data():
         self.lines_bf_params[i] = best_bf
         self.lines_ew[i] = samp_ew[np.where(samp_ew!=0)].mean()
         self.lines_ew_err[i] = samp_ew[np.where(samp_ew!=0)].std()
+        self.lines_ew_simp[i] = simp_values[np.where(simp_values!=0)].mean()
+        self.lines_ew_simp_err[i] = simp_values[np.where(simp_values!=0)].std()
+
         #Plotting stuff
         if plot:
             fig1, coarse_view = plt.subplots()
@@ -358,7 +401,7 @@ class Spectrum_Data():
             coarse_view.plot([line_bound[0],line_bound[0]],[norm*1.025,norm*0.95], '--', color = '#e41a1c', alpha = 0.5)
             coarse_view.plot([line_bound[1],line_bound[1]],[norm*1.025,norm*0.95], '--', color = '#e41a1c', alpha = 0.5)
             coarse_view.annotate(str(self.lines[i]), xy = [self.lines[i], norm*1.025])
-            coarse_view.plot(xtest,dy+norm, '--', color = '#e41a1c', lw = 2)
+            #coarse_view.plot(xtest,dy+norm, '--', color = '#e41a1c', lw = 2) #view gradient
             if plot_gaussian:
                 coarse_view.plot(xtest, fit_gauss, '--', color = '#377eb8', lw= 2)
             coarse_view.plot([xtest[0],xtest[-1]],[norm,norm], '--', color = '#4daf4a')
@@ -366,7 +409,7 @@ class Spectrum_Data():
                 fig_title = str(order) + '_' + str(self.lines[i]) + '.pdf'
                 plt.savefig(fig_title)
             plt.show()
-            print(np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2))
+            print(np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2), np.round(self.lines_ew_simp_err[i],2))
         
         #print extra parameter stuff
         if ex_params == [0,0,0,0]:
@@ -381,9 +424,11 @@ class Spectrum_Data():
             for i in range(len(self.lines)):
                 if self.lines[i] in exclude_lines:
                     self.lines_ew[i] = 0.0
+                    self.lines_ew_simp[i] = 0.0
                     self.lines_gauss_Xsquare[i] = np.nan
                     self.lines_bf_params[i] = None
                     self.lines_ew_err[i] = np.nan
+                    self.lines_ew_simp_err[i] = np.nan
                     self.lines_exp[i] = [0,0,0,0]
                     #self.lines_check_flag[i] = False
                 elif self.lines[i] >= self.shifted_wavelength[order][0] and self.lines[i] <= self.shifted_wavelength[order][-1]:
@@ -403,9 +448,11 @@ class Spectrum_Data():
             if self.lines[i] >= self.shifted_wavelength[order][0] and self.lines[i] <= self.shifted_wavelength[order][-1]:
                 if not found:
                     self.lines_ew[i] = 0.0
+                    self.lines_ew_simp[i] = 0.0
                     self.lines_gauss_Xsquare[i] = np.nan
                     self.lines_bf_params[i] = None
                     self.lines_ew_err[i] = np.nan
+                    self.lines_ew_simp_err[i] = np.nan
                     #self.lines_check_flag[i] = False
                     self.measure_ew(i,order, True, ex_params, save_plot, window_size)
                     found = True
