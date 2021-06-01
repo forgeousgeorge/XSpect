@@ -6,11 +6,7 @@ Python3 code to measure equivalent widths, derive stellar parameters, and determ
  - Normalizes reduced data
  - Applies Waveshift correction (comparison spectrum required)
  - Measures Equivalent Widths of input line list (line list required, sample provided)
- - Outputs pymoogi readable file used to derive and determine stellar parameters and elemental abundances
- 
-## XSpect - SP (Stellar Parameters)
-
-## XSpect - EA (Elemental Abundances)
+ - Outputs pymoogi readable file used to derive and determine stellar parameters and elemental abundance
 
 ### Python Required Packages
  - Numpy
