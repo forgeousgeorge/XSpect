@@ -17,19 +17,38 @@ from scipy.optimize import minimize
 
 #--------------------------------------------------Classes--------------------------------------------------#
 class Spectrum_Data():
-    def __init__(self, filename):
+    def __init__(self, filename, KECK_file = True, spectx=False, specty=False):
         self.filename = filename
-        self.wavelength, self.flux = self.read_spec()
+        if KECK_file:
+            self.wavelength, self.flux = self.read_spec()
+        else:
+            self.wavelength = spectx
+            self.flux = specty
         self.normalized_flux = self.flux.copy()
+        self.combined_flux = None
         self.shifted_wavelength = self.wavelength.copy()
         self.estimated_shift = np.zeros(len(self.wavelength))
         self.rv = None #km/s
         
         #continuum information
-        self.continuum = np.full((len(self.wavelength),len(self.wavelength[0])), False)
-        self.pred_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
-        self.pred_var_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
-        self.obs_err = np.zeros((len(self.wavelength),len(self.wavelength[0])))
+        self.continuum = np.full(len(self.wavelength), None)
+        #print('cont array empty', self.continuum)
+        self.pred_all = np.full(len(self.wavelength), None)
+        self.pred_var_all = np.full(len(self.wavelength), None)
+        self.obs_err = np.full(len(self.wavelength), None)
+        for i in range(len(self.wavelength)):
+            false_array = np.full(len(self.wavelength[i]), False)
+            #print('false array created', false_array)
+            self.continuum[i] = false_array
+            self.pred_all[i] = np.full(len(self.wavelength[i]), 0)
+            self.pred_var_all[i] = np.full(len(self.wavelength[i]), 0)
+            self.obs_err[i] = np.full(len(self.wavelength[i]), 0)
+        #print('empty continuum arrays created', self.continuum)
+        #Old way of setting these variables (change back if above code causes problems)
+        # self.continuum = np.full((len(self.wavelength),len(self.wavelength[0])), False)
+        # self.pred_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
+        # self.pred_var_all = np.zeros((len(self.wavelength),len(self.wavelength[0])))
+        # self.obs_err = np.zeros((len(self.wavelength),len(self.wavelength[0])))
         
         #line information
         self.lines = None
@@ -154,6 +173,58 @@ class Spectrum_Data():
             
     def wave_shift(self, order, shift):
         self.shifted_wavelength[order] = self.wavelength[order] + shift
+
+    def combine_spectra(self, spectB, resolution = 1000):
+        print('Use self.update_combined() when you are happy with the combined flux to override self.flux')
+        #find corresponding orders that match self in spectB
+        med_A = [np.median(self.shifted_wavelength[i]) for i in range(len(self.shifted_wavelength))]
+        med_B = [np.median(spectB.shifted_wavelength[i]) for i in range(len(spectB.shifted_wavelength))]
+        b_order = []
+        #find corresponding B order
+        for k in range(len(med_A)):
+            diff = abs(med_A[k] - med_B)
+            loc = np.where(diff == diff.min())
+            b_order.append(loc)
+            
+        combined_flux_orders = np.zeros_like(self.flux)
+        #first shift A to match B with higher accuracy (higher resolution)
+        #may have to include a try statement for errors
+        self.estimate_shift([spectB], shift_spacing=resolution)
+        #self.clean_shift()
+        
+        #loop through orders
+        for i in range(len(self.shifted_wavelength)):
+            
+            #combining flux values for each wavelength value
+            combined_flux = np.zeros(len(self.shifted_wavelength[i]))
+            
+            print('A order', i, 'B order', b_order[i][0][0])
+            
+            #loop through each shifted wavelength value
+            for j in range(len(self.shifted_wavelength[i])):
+                #difference between one shifted wavelength value and all B wavelength values
+                #element closest to zero is location of closest wavelength values
+                diff_array = abs(self.shifted_wavelength[i][j] - spectB.wavelength[b_order[i]])
+                loc = np.where(diff_array == diff_array.min())
+                #add A flux with B flux at location where diff = 0
+                combined_flux[j] = self.flux[i][j] + spectB.flux[b_order[i]][loc]
+            #print(combined_flux)
+            #collect flux values for each order
+            combined_flux_orders[i] = combined_flux
+            
+            plt.plot(self.shifted_wavelength[i], self.flux[i], marker = '.', label = 'A')
+            plt.plot(spectB.wavelength[b_order[i][0][0]], spectB.flux[b_order[i][0][0]], marker = '.', label = 'B')
+            plt.plot(self.shifted_wavelength[i], combined_flux, marker = '.', label = 'A+B')
+            plt.xlim([np.median(self.shifted_wavelength[i]-1),np.median(self.shifted_wavelength[i]+1)])
+            plt.grid()
+            plt.legend()
+            plt.show()
+            print('#-----------------------#')
+        #replace original flux for A with combined flux
+        self.combined_flux = combined_flux_orders
+
+    def update_combined(self):
+        self.flux = self.combined_flux
         
     def estimate_shift(self, sun_spectra, shift_max = 5, shift_min = -5, shift_spacing = 100):
         #setup num orders, place holder for chi min, shifts array
@@ -322,7 +393,6 @@ class Spectrum_Data():
         #                 [1] - left boundary in Angstroms
         #                 [2] - right boundary in Angstroms
         #                 [3] - line center in Angstroms
-        print('line to measure:',self.lines[i])
         norm = 1.0
         wind, found_line, line_bound,dy = get_line_window(self.lines[i],self.shifted_wavelength[order],self.normalized_flux[order],ex_params[1],ex_params[2],ex_params[3], window_size)
         other_than_line = np.where((self.shifted_wavelength[order][wind] <= line_bound[0])|(self.shifted_wavelength[order][wind] >= line_bound[1]))
@@ -381,6 +451,8 @@ class Spectrum_Data():
         self.lines_ew_err[i] = samp_ew[np.where(samp_ew!=0)].std()
         self.lines_ew_simp[i] = simp_values[np.where(simp_values!=0)].mean()
         self.lines_ew_simp_err[i] = simp_values[np.where(simp_values!=0)].std()
+        print('line to measure:', ELEMENTS[self.lines_exd[i][0]],self.lines[i], '- Line found:', found_line)
+        print(self.lines[i],np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2), np.round(self.lines_ew_simp_err[i],2))
 
         #Plotting stuff
         if plot:
@@ -409,7 +481,8 @@ class Spectrum_Data():
                 fig_title = str(order) + '_' + str(self.lines[i]) + '.pdf'
                 plt.savefig(fig_title)
             plt.show()
-            print(np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2), np.round(self.lines_ew_simp_err[i],2))
+
+            print('#-----------------------#')
         
         #print extra parameter stuff
         if ex_params == [0,0,0,0]:
