@@ -6,6 +6,7 @@ from scipy.spatial.distance import cdist
 from scipy.integrate import simps
 from numpy.linalg import inv
 from numpy.linalg import slogdet
+import pickle
 #----------------------------------------------------------Functions-------------------------------------------------------#
 def plot_line_info(star, name, filt = None):
     fig = plt.figure(figsize = (10,5))
@@ -287,6 +288,10 @@ def reduce_cc(x,y,lines,lines_removed,limit=0.12):
     lines,x,y,lines_removed = reduce_cc(x,y,lines,lines_removed)
     
     return lines,x,y,lines_removed
+
+def load_object(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
 
 #-------------------------------------------------------------DICTIONARY--------------------------------------------------------------#
 ELEMENTS = {1:'H I',2:'He I',3:'Li I',4:'Be I',5:'B I',6:'C I',7:'N I',8:'O I',9:'F I',10:'Ne I',11:'Na I',12:'Mg I',13:'Al I',

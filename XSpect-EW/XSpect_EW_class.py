@@ -14,6 +14,7 @@ from XSpect_EW_func import *
 import george
 from george import kernels
 from scipy.optimize import minimize
+import pickle
 
 #--------------------------------------------------Classes--------------------------------------------------#
 class Spectrum_Data():
@@ -452,7 +453,7 @@ class Spectrum_Data():
         self.lines_ew_simp[i] = simp_values[np.where(simp_values!=0)].mean()
         self.lines_ew_simp_err[i] = simp_values[np.where(simp_values!=0)].std()
         print('line to measure:', ELEMENTS[self.lines_exd[i][0]],self.lines[i], '- Line found:', found_line)
-        print(self.lines[i],np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2), np.round(self.lines_ew_simp_err[i],2))
+        print('EW:',np.round(self.lines_ew[i],2),np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2), np.round(self.lines_ew_simp_err[i],2))
 
         #Plotting stuff
         if plot:
@@ -478,7 +479,7 @@ class Spectrum_Data():
                 coarse_view.plot(xtest, fit_gauss, '--', color = '#377eb8', lw= 2)
             coarse_view.plot([xtest[0],xtest[-1]],[norm,norm], '--', color = '#4daf4a')
             if save_plot:
-                fig_title = str(order) + '_' + str(self.lines[i]) + '.pdf'
+                fig_title = ELEMENTS[self.lines_exd[i][0]] + '_' + str(self.lines[i]) + '_' + str(order) + '.pdf'
                 plt.savefig(fig_title)
             plt.show()
 
@@ -492,7 +493,7 @@ class Spectrum_Data():
             print('extra params:',ex_params)
 
 #------------------------------------------------------------------------------------#        
-    def measure_all_ew(self, exclude_lines= [], plot_lines=[], ex_params = {}, window_size = 1.5):
+    def measure_all_ew(self, exclude_lines= [], plot_lines=[], ex_params = {}, window_size = 1.5, save_all = False):
         for order in range(len(self.wavelength)):
             for i in range(len(self.lines)):
                 if self.lines[i] in exclude_lines:
@@ -510,8 +511,11 @@ class Spectrum_Data():
                     if self.lines[i] in plot_lines:
                         plot = True
                         if self.lines[i] in ex_params.keys():
-                            exp = ex_params[self.lines[i]]    
-                    self.measure_ew(i,order, plot, exp, False, window_size)
+                            exp = ex_params[self.lines[i]]   
+                    if save_all:
+                        self.measure_ew(i,order, plot, exp, True, window_size)
+                    else:
+                        self.measure_ew(i,order, plot, exp, False, window_size)
         #self.lines_bf_params = np.array(self.lines_bf_params)
         
     def measure_line_ew(self,line,ex_params=[0,0,0,0], save_line = False, save_plot = False, window_size = 1.5):
@@ -690,6 +694,10 @@ class Spectrum_Data():
                 #ax.set_ylabel(str(i+1))
                 plt.tight_layout()
                 plt.show()
+
+    def save_object(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(self, f)
                 
 class Continuum_scan():
     '''Selects points at the continuum
