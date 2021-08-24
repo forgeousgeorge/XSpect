@@ -174,8 +174,9 @@ class Spectrum_Data():
             
     def wave_shift(self, order, shift):
         self.shifted_wavelength[order] = self.wavelength[order] + shift
+        self.estimated_shift[order] = shift
 
-    def combine_spectra(self, spectB, resolution = 1000):
+    def combine_spectra(self, spectB, resolution = 1000, shift=True):
         print('Use self.update_combined() when you are happy with the combined flux to override self.flux')
         #find corresponding orders that match self in spectB
         med_A = [np.median(self.shifted_wavelength[i]) for i in range(len(self.shifted_wavelength))]
@@ -188,10 +189,11 @@ class Spectrum_Data():
             b_order.append(loc)
             
         combined_flux_orders = np.zeros_like(self.flux)
-        #first shift A to match B with higher accuracy (higher resolution)
-        #may have to include a try statement for errors
-        self.estimate_shift([spectB], shift_spacing=resolution)
-        #self.clean_shift()
+        if shift:
+            #first shift A to match B with higher accuracy (higher resolution)
+            #may have to include a try statement for errors
+            self.estimate_shift([spectB], shift_spacing=resolution)
+            self.clean_shift()
         
         #loop through orders
         for i in range(len(self.shifted_wavelength)):
@@ -480,7 +482,7 @@ class Spectrum_Data():
             coarse_view.plot([xtest[0],xtest[-1]],[norm,norm], '--', color = '#4daf4a')
             if save_plot:
                 fig_title = ELEMENTS[self.lines_exd[i][0]] + '_' + str(self.lines[i]) + '_' + str(order) + '.pdf'
-                plt.savefig(fig_title)
+                plt.savefig('line_plots/'+fig_title)
             plt.show()
 
             print('#-----------------------#')
@@ -494,6 +496,9 @@ class Spectrum_Data():
 
 #------------------------------------------------------------------------------------#        
     def measure_all_ew(self, exclude_lines= [], plot_lines=[], ex_params = {}, window_size = 1.5, save_all = False):
+        if save_all:
+            make_plots_folder()
+
         for order in range(len(self.wavelength)):
             for i in range(len(self.lines)):
                 if self.lines[i] in exclude_lines:
@@ -519,6 +524,8 @@ class Spectrum_Data():
         #self.lines_bf_params = np.array(self.lines_bf_params)
         
     def measure_line_ew(self,line,ex_params=[0,0,0,0], save_line = False, save_plot = False, window_size = 1.5):
+        if save_plot:
+            make_plots_folder()
         i = np.where(self.lines == line)[0][0]
         found = False
         for order in range(len(self.wavelength)):
