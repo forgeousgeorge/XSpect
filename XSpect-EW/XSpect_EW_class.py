@@ -479,9 +479,9 @@ class Spectrum_Data():
             data_view = fig.add_subplot(122)
             data_view.grid()
             data_view.set_xlabel(r'$\rm Wavelength~(\AA)$', size = 14)
-            data_view.plot(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind]+ ex_params[0], color = 'k', zorder = 2)
+            data_view.scatter(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind]+ ex_params[0], s = 5, c = 'k', zorder = 2)
             data_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='.', color = 'k', zorder = 3)
+                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='.', color = 'k', zorder = 3, alpha = 0.5)
             plt.tight_layout()
 
 
