@@ -218,6 +218,7 @@ def combine_files(empty_obj,objects = []):
     final_obs_err = []
     final_pred_all = []
     final_pred_var_all = []
+    final_gain = []
     
     for j in objects:
 
@@ -231,6 +232,7 @@ def combine_files(empty_obj,objects = []):
             final_obs_err.append(j.obs_err[i])
             final_pred_all.append(j.pred_all[i])
             final_pred_var_all.append(j.pred_var_all[i])
+            final_gain.append(j.gain[i])
                
     empty_obj.wavelength = np.array(final_wavelength)
     empty_obj.flux = np.array(final_flux)
@@ -241,6 +243,7 @@ def combine_files(empty_obj,objects = []):
     empty_obj.obs_err = np.array(final_obs_err)
     empty_obj.pred_all = np.array(final_pred_all)
     empty_obj.pred_var_all = np.array(final_pred_var_all)
+    empty_obj.gain = np.array(final_gain)
     del final_wavelength
     del final_flux
     del final_norm_flux
@@ -250,6 +253,7 @@ def combine_files(empty_obj,objects = []):
     del final_obs_err
     del final_pred_all
     del final_pred_var_all
+    del final_gain
     
     return empty_obj
 

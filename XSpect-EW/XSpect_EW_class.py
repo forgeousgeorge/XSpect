@@ -20,6 +20,7 @@ import pickle
 class Spectrum_Data():
     def __init__(self, filename, KECK_file = True, spectx=False, specty=False):
         self.filename = filename
+        self.gain = None
         if KECK_file:
             self.wavelength, self.flux = self.read_spec()
         else:
@@ -43,7 +44,7 @@ class Spectrum_Data():
             self.continuum[i] = false_array
             self.pred_all[i] = np.full(len(self.wavelength[i]), 0)
             self.pred_var_all[i] = np.full(len(self.wavelength[i]), 0)
-            self.obs_err[i] = np.full(len(self.wavelength[i]), 0)
+            self.obs_err[i] = np.sqrt(self.flux[i]*self.gain[i])
         #print('empty continuum arrays created', self.continuum)
         #Old way of setting these variables (change back if above code causes problems)
         # self.continuum = np.full((len(self.wavelength),len(self.wavelength[0])), False)
@@ -97,7 +98,7 @@ class Spectrum_Data():
             clipl = 0
             clipr = -1
  
-        err = np.sqrt(self.flux[order][clipl:clipr])
+        err = np.sqrt(self.flux[order][clipl:clipr]*self.gain[order])
         continuum_scan_obj = Continuum_scan(window_width, continuum_depth)
         continuum_scan_obj.load_data(self.wavelength[order][clipl:clipr],self.flux[order][clipl:clipr])
         continuum_scan_obj.scan()
@@ -685,11 +686,14 @@ class Spectrum_Data():
                     for j in range(num_points-1):
                         j += 1
                         wavelength[i][j] = wavelength[i][j-1] + header[spacing_wave_key]
+                self.gain = np.ones(len(wavelength))*header['CCDGN01'] 
                 print('CRVL stuff found')
 
             except: #faster and possibly more common
                 ##get wavelength information for each order
                 starting_waves, wave_spacing = self.wat_info(hdul)
+                #get ccd info and gain
+                self.keck_chip_gains(header, len(wavelength))
 
                 #fill wavelength array
                 for i in range(num_orders):
@@ -731,6 +735,27 @@ class Spectrum_Data():
     def save_object(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self, f)
+
+    def keck_chip_gains(self, header, num_orders):
+        #Determine chip color based on starting wavelength of chip
+        #Determine gain based on chip color info from https://www2.keck.hawaii.edu/inst/hires/ccdgain.html
+        starting_wavelength = float(header['WAT2_001'].split()[6])
+        low_high = header['CCDGAIN']
+        if starting_wavelength < 4000.0:
+            if low_high == 'low':
+                self.gain = np.ones(num_orders)*1.95
+            if low_high == 'high':
+                self.gain = np.ones(num_orders)*0.78
+        elif starting_wavelength < 6000.0:
+            if low_high == 'low':
+                self.gain = np.ones(num_orders)*2.09
+            if low_high == 'high':
+                self.gain = np.ones(num_orders)*0.84
+        else:
+            if low_high == 'low':
+                self.gain = np.ones(num_orders)*2.09
+            if low_high == 'high':
+                self.gain = np.ones(num_orders)*0.89
                 
 class Continuum_scan():
     '''Selects points at the continuum
