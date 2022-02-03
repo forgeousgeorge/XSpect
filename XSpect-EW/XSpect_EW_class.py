@@ -15,20 +15,42 @@ import george
 from george import kernels
 from scipy.optimize import minimize
 import pickle
+import copy
 
 #--------------------------------------------------Classes--------------------------------------------------#
 class Spectrum_Data():
-    def __init__(self, filename, KECK_file = True, spectx=False, specty=False):
+    def __init__(self, filename, KECK_file = True, spectx=False, specty=False, order_split = (False,3500)):
+        """
+            filenmae - used to name plots and files
+            KECK_file - True if loading KECK fits file
+            spectx, specty - input spectrum if loading from arrays 
+                if not using order_split:
+                    input format: [[order1],[order2],...] orderN = [x1,x2,x3,...]
+                if using order_split:
+                    input format: [x1,x2,x3,...]
+        """
         self.filename = filename
         self.gain = None
         if KECK_file:
             self.wavelength, self.flux = self.read_spec()
         else:
-            self.wavelength = spectx
-            self.flux = specty
-        self.normalized_flux = self.flux.copy()
+            #split input array into orders 
+            if order_split[0]:
+                #Try targetting about 3500 points per order, too many points per order will slow code down
+                order_count = int(len(spectx)/order_split[1])
+                order_split_wave = np.array_split(spectx, order_count)
+                order_split_flux = np.array_split(specty, order_count)
+                self.wavelength = order_split_wave
+                self.flux = order_split_flux
+                del order_split_wave
+                del order_split_flux
+                print('If values need to be replaced, use replace_w() function')
+            else:
+                self.wavelength = spectx
+                self.flux = specty
+        self.normalized_flux = copy.deepcopy(self.flux) #deepcopy creates new object
         self.combined_flux = None
-        self.shifted_wavelength = self.wavelength.copy()
+        self.shifted_wavelength = copy.deepcopy(self.wavelength)
         self.estimated_shift = np.zeros(len(self.wavelength))
         self.rv = None #km/s
         
@@ -44,7 +66,7 @@ class Spectrum_Data():
             self.continuum[i] = false_array
             self.pred_all[i] = np.full(len(self.wavelength[i]), 0)
             self.pred_var_all[i] = np.full(len(self.wavelength[i]), 0)
-            self.obs_err[i] = np.sqrt(self.flux[i]*self.gain[i])
+            self.obs_err[i] = np.sqrt(self.flux[i])
         #print('empty continuum arrays created', self.continuum)
         #Old way of setting these variables (change back if above code causes problems)
         # self.continuum = np.full((len(self.wavelength),len(self.wavelength[0])), False)
@@ -73,7 +95,7 @@ class Spectrum_Data():
         #line - X squared value for gaussian and data
         self.lines_gauss_Xsquare = None
         #line - X squared threshold value
-        self.X_thresh = 0.001
+        self.X_thresh = 0.003
         #line - X squared value above threshold or EW = 0
         self.lines_check_flag = None
         #used to switch between Adamow ew calculation and simpson's rule integration
@@ -86,6 +108,15 @@ class Spectrum_Data():
 
             #use Gaussian Process to fit continuum
             self.normalize(i, window_width, continuum_depth)
+
+            #Replace un-normalized points with value before it
+            #This should only be replacing the last point in the 
+            #spectrum that is always missed by normalize
+            err_est = self.obs_err[i]/self.pred_all[i]
+            non_norm_points = np.where(self.normalized_flux[i] > np.average(self.normalized_flux[i][self.continuum[i]]+err_est[self.continuum[i]]*100))
+            #replace non norm points
+            self.normalized_flux[i][non_norm_points] = self.normalized_flux[i][non_norm_points[0]-1]
+
         return None
 
     def normalize(self, order, window_width = 1.5, continuum_depth = 90, clip = [-999,-999]):
@@ -98,7 +129,7 @@ class Spectrum_Data():
             clipl = 0
             clipr = -1
  
-        err = np.sqrt(self.flux[order][clipl:clipr]*self.gain[order])
+        err = np.sqrt(self.flux[order][clipl:clipr])
         continuum_scan_obj = Continuum_scan(window_width, continuum_depth)
         continuum_scan_obj.load_data(self.wavelength[order][clipl:clipr],self.flux[order][clipl:clipr])
         continuum_scan_obj.scan()
@@ -138,8 +169,22 @@ class Spectrum_Data():
         neg_ln = (-1)*params[0].log_likelihood(params[1])
         return neg_ln
 
-    def S_N(self, order):
-        return self.flux[order]/self.obs_err[order]
+    def S_N(self, rows = 5, cols = 4, save_plot = False):
+        #Siganl to noise is overestimated compared to MAKEE output
+        plt.clf()
+        f = plt.figure(figsize=(20,15))
+        plt.suptitle(str(self.filename) + ' S/N', size = 20)
+        for i in range(len(self.wavelength)):
+            order = i
+            i += 1
+            ax = f.add_subplot(rows, cols,i)
+            ax.plot(self.wavelength[order],np.sqrt(self.flux[order]*self.gain[order]))
+            ax.set_title(str(i))
+            ax.grid()
+        plt.tight_layout()
+        if save_plot:
+            plt.savefig(str(self.filename)+'_SNR.pdf')
+        plt.show()
 
     def load_normalized(self, name):
         pathnames = glob.glob(name+'*'+'.npy')
@@ -399,18 +444,55 @@ class Spectrum_Data():
         #                 [3] - line center in Angstroms
         norm = 1.0
         wind, found_line, line_bound,dy = get_line_window(self.lines[i],self.shifted_wavelength[order],self.normalized_flux[order],ex_params[1],ex_params[2],ex_params[3], window_size)
-        other_than_line = np.where((self.shifted_wavelength[order][wind] <= line_bound[0])|(self.shifted_wavelength[order][wind] >= line_bound[1]))
-        only_line = np.where((self.shifted_wavelength[order][wind] >= line_bound[0])|(self.shifted_wavelength[order][wind] <= line_bound[1]))
-        flat_wing = self.normalized_flux[order][wind].copy() + ex_params[0]
+
+        if [wind,found_line,line_bound,dy] == [1,1,0,0]:
+            pass
+            if order != 0:
+                concat_wave = np.concatenate((self.shifted_wavelength[order-1],self.shifted_wavelength[order]), axis=None)
+                concat_flux = np.concatenate((self.normalized_flux[order-1],self.normalized_flux[order]), axis=None)
+                concat_err = np.concatenate((self.obs_err[order-1],self.obs_err[order]), axis=None)
+                concat_pred = np.concatenate((self.pred_all[order-1],self.pred_all[order]), axis=None)
+                wind, found_line, line_bound, dy = get_line_window(self.lines[i], concat_wave, concat_flux,ex_params[1],ex_params[2],ex_params[3], window_size)
+                measure_x_array = concat_wave[wind]
+                measure_y_array = concat_flux[wind]
+                temp_err_array = concat_err[wind]
+                temp_pred_array = concat_pred[wind]
+        elif [wind,found_line,line_bound,dy] == [0,0,1,1]:
+            pass
+            if self.shifted_wavelength[order] != self.shifted_wavelength[-1]:
+                concat_wave = np.concatenate((self.shifted_wavelength[order],self.shifted_wavelength[order+1]), axis=None)
+                concat_flux = np.concatenate((self.normalized_flux[order],self.normalized_flux[order+1]), axis=None)
+                concat_err = np.concatenate((self.obs_err[order],self.obs_err[order+1]), axis=None)
+                concat_pred = np.concatenate((self.pred_all[order],self.pred_all[order+1]), axis=None)
+                wind, found_line, line_bound, dy = get_line_window(self.lines[i], concat_wave, concat_flux,ex_params[1],ex_params[2],ex_params[3], window_size)
+                measure_x_array = concat_wave[wind]
+                measure_y_array = concat_flux[wind]
+                temp_err_array = concat_err[wind]
+                temp_pred_array = concat_pred[wind]
+        else:
+            measure_x_array = self.shifted_wavelength[order][wind]
+            measure_y_array = self.normalized_flux[order][wind]
+            temp_err_array = self.obs_err[order][wind]
+            temp_pred_array = self.pred_all[order][wind]
+
+        other_than_line = np.where((measure_x_array <= line_bound[0])|(measure_x_array >= line_bound[1]))
+        only_line = np.where((measure_x_array >= line_bound[0])|(measure_x_array <= line_bound[1]))
+        flat_wing = measure_y_array.copy() + ex_params[0]
         flat_wing[other_than_line] = norm 
         #highlight points within errors of continuum (or 1.0)
-        upper_cont_bounds = self.normalized_flux[order][wind]+ ex_params[0] + 2*self.obs_err[order][wind]/self.pred_all[order][wind]
-        lower_cont_bounds = self.normalized_flux[order][wind]+ ex_params[0] - 2*self.obs_err[order][wind]/self.pred_all[order][wind]
+        upper_cont_bounds = measure_y_array+ ex_params[0] + 2*temp_err_array/temp_pred_array
+        lower_cont_bounds = measure_y_array+ ex_params[0] - 2*temp_err_array/temp_pred_array
         points_within_norm = np.where((norm > lower_cont_bounds)&(norm < upper_cont_bounds))
         #GP fit
-        xtest = np.linspace(self.shifted_wavelength[order][wind][0], self.shifted_wavelength[order][wind][-1], len(self.shifted_wavelength[order][wind]))
-        m,C=Pred_GP(SEKernel,[1,100],self.shifted_wavelength[order][wind],flat_wing,2*self.obs_err[order][wind]/self.pred_all[order][wind], xtest)
-        samples = multivariate_normal(m,C,500)
+        xtest = np.linspace(measure_x_array[0], measure_x_array[-1], len(measure_x_array))
+        m,C=Pred_GP(SEKernel,[1,100],measure_x_array,flat_wing,2*temp_err_array/temp_pred_array, xtest)
+        try:
+            samples = multivariate_normal(m,C,500)
+        except:
+            print('SVD did not converge, setting samples to 0')
+            print('If line is close to an edge, try remeasuring line with a smaller window size')
+            samples = np.array([0]*500)
+
         m_plot=m.copy()
         m = (-1)*(m-1)
         samp_ew = np.zeros(len(samples))
@@ -449,10 +531,16 @@ class Spectrum_Data():
         #set values for line
         self.lines_gauss_Xsquare[i] = chisquare(fit_gauss[only_line], flat_wing[only_line])[0]
         self.lines_bf_params[i] = best_bf
-        self.lines_ew[i] = samp_ew[np.where(samp_ew!=0)].mean()
-        self.lines_ew_err[i] = samp_ew[np.where(samp_ew!=0)].std()
-        self.lines_ew_simp[i] = simp_values[np.where(simp_values!=0)].mean()
-        self.lines_ew_simp_err[i] = simp_values[np.where(simp_values!=0)].std()
+        if len(samp_ew[np.where(samp_ew==0)]) == len(samples):
+            self.lines_ew[i] = 0
+            self.lines_ew_err[i] = 0 
+            self.lines_ew_simp[i] = 0
+            self.lines_ew_simp_err[i] = 0
+        else:
+            self.lines_ew[i] = samp_ew[np.where(samp_ew!=0)].mean()
+            self.lines_ew_err[i] = samp_ew[np.where(samp_ew!=0)].std()
+            self.lines_ew_simp[i] = simp_values[np.where(simp_values!=0)].mean()
+            self.lines_ew_simp_err[i] = simp_values[np.where(simp_values!=0)].std()
         print('line to measure:', ELEMENTS[self.lines_exd[i][0]],self.lines[i], '- Line found:', found_line)
         print('EW:',np.round(self.lines_ew[i],2),u"\u00B1",np.round(self.lines_ew_err[i],2), 'simps-int:', np.round(self.lines_ew_simp[i],2),u"\u00B1", np.round(self.lines_ew_simp_err[i],2))
 
@@ -464,9 +552,9 @@ class Spectrum_Data():
             fit_view.grid()
             fit_view.set_xlabel(r'$\rm Wavelength~(\AA)$', size = 14)
             fit_view.set_ylabel('Normalized Flux', size = 14)
-            fit_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='.', color = 'k', label = 'cont', zorder = 2)
-            fit_view.scatter(self.shifted_wavelength[order][wind][points_within_norm],self.normalized_flux[order][wind][points_within_norm] + ex_params[0], s = 10, c='#4daf4a', zorder = 3, alpha = 0.8)
+            fit_view.errorbar(measure_x_array,measure_y_array + ex_params[0],
+                 yerr=2*temp_err_array/temp_pred_array,capsize=0,fmt='.', color = 'k', label = 'cont', zorder = 2)
+            fit_view.scatter(measure_x_array[points_within_norm],measure_y_array[points_within_norm] + ex_params[0], s = 10, c='#4daf4a', zorder = 3, alpha = 0.8)
             fit_view.fill_between(xtest,m_plot+2*np.sqrt(np.diag(C)),
                      m_plot-2*np.sqrt(np.diag(C)),color='#999999',alpha=0.5)
             fit_view.plot([self.lines[i],self.lines[i]],[norm,norm*0.95], '--', color = 'k', alpha = 0.75)
@@ -480,9 +568,9 @@ class Spectrum_Data():
             data_view = fig.add_subplot(122)
             data_view.grid()
             data_view.set_xlabel(r'$\rm Wavelength~(\AA)$', size = 14)
-            data_view.scatter(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind]+ ex_params[0], s = 5, c = 'k', zorder = 2)
-            data_view.errorbar(self.shifted_wavelength[order][wind],self.normalized_flux[order][wind] + ex_params[0],
-                 yerr=2*self.obs_err[order][wind]/self.pred_all[order][wind],capsize=0,fmt='.', color = 'k', zorder = 3, alpha = 0.5)
+            data_view.scatter(measure_x_array,measure_y_array+ ex_params[0], s = 5, c = 'k', zorder = 2)
+            data_view.errorbar(measure_x_array,measure_y_array + ex_params[0],
+                 yerr=2*temp_err_array/temp_pred_array,capsize=0,fmt='.', color = 'k', zorder = 3, alpha = 0.5)
             plt.tight_layout()
 
 
@@ -640,10 +728,14 @@ class Spectrum_Data():
                             break
 
                     except:
+                        if len(item) >= 30:
+                            print()
                         non_floats = item
                         pass
                 starting_wavs[count] = starting_wave
+                #print(count, starting_wave)
                 wave_spacing[count] = spacing
+                #print(spacing)
                 count += 1
         return starting_wavs, wave_spacing
 
@@ -670,6 +762,11 @@ class Spectrum_Data():
             #make index array
             wavelength = np.zeros((num_orders, num_points))
 
+            try:#get ccd info and gain
+                self.gain = np.ones(len(wavelength))*header['CCDGN01']
+            except:
+                self.keck_chip_gains(header, len(wavelength))
+
             try:
                 #get wavelength information for each order
                 for i in range(num_orders):
@@ -686,14 +783,11 @@ class Spectrum_Data():
                     for j in range(num_points-1):
                         j += 1
                         wavelength[i][j] = wavelength[i][j-1] + header[spacing_wave_key]
-                self.gain = np.ones(len(wavelength))*header['CCDGN01'] 
                 print('CRVL stuff found')
 
             except: #faster and possibly more common
                 ##get wavelength information for each order
                 starting_waves, wave_spacing = self.wat_info(hdul)
-                #get ccd info and gain
-                self.keck_chip_gains(header, len(wavelength))
 
                 #fill wavelength array
                 for i in range(num_orders):
@@ -718,7 +812,7 @@ class Spectrum_Data():
                 for j in range(len(self.lines)):
                     plt.plot([self.lines[j],self.lines[j]],[0.95,1.0], 'k')
                     plt.annotate(str(self.lines[j]), xy=[self.lines[j],1.01])
-            plt.ylim([0.4,1.1])
+            #plt.ylim([0.4,1.1])
             plt.show()
         else:
             for i in range(orders):
@@ -739,14 +833,25 @@ class Spectrum_Data():
     def keck_chip_gains(self, header, num_orders):
         #Determine chip color based on starting wavelength of chip
         #Determine gain based on chip color info from https://www2.keck.hawaii.edu/inst/hires/ccdgain.html
-        starting_wavelength = float(header['WAT2_001'].split()[6])
+        spec_info = header['WAT2_001'].split()
+        for i in range(len(spec_info)):
+            try:
+                num = float(spec_info[i])
+                if num/100 > 1.0:
+                    break
+            except ValueError:
+                pass
+
+        starting_wavelength = num
+        print("starting wavelength:", starting_wavelength)
         low_high = header['CCDGAIN']
-        if starting_wavelength < 4000.0:
+        print("Chip Gain:", low_high)
+        if starting_wavelength < 5000.0:
             if low_high == 'low':
                 self.gain = np.ones(num_orders)*1.95
             if low_high == 'high':
                 self.gain = np.ones(num_orders)*0.78
-        elif starting_wavelength < 6000.0:
+        elif starting_wavelength < 6500.0:
             if low_high == 'low':
                 self.gain = np.ones(num_orders)*2.09
             if low_high == 'high':
@@ -767,6 +872,7 @@ class Continuum_scan():
         #self.current_sig = None
         #Size of selection box in x axis
         self.distx = distx
+        self.points_in_window = None
         #Input spectra
         self.data = None
         #Points selected as part of the continuum
@@ -775,53 +881,65 @@ class Continuum_scan():
         self.depth = depth
         return None
     
-    def above_sigma(self): #
-        #within window, select points above (max value - depth*sigma)
-        current_data_x = self.data[0][self.select_window]
-        current_data_y = self.data[1][self.select_window]
-        #top_value = current_data_y.max()
-        #y_lim = top_value - self.depth*self.current_sig
-        percent = np.percentile(current_data_y, self.depth)
-        #self.select_points[self.select_window] = (current_data_y >=  y_lim)
-        self.select_points[self.select_window] = (current_data_y >= percent)
-        return None
+    # def above_sigma(self): #
+    #     #within window, select points above (max value - depth*sigma)
+    #     current_data_x = self.data[0][self.select_window]
+    #     current_data_y = self.data[1][self.select_window]
+    #     #top_value = current_data_y.max()
+    #     #y_lim = top_value - self.depth*self.current_sig
+    #     percent = np.percentile(current_data_y, self.depth)
+    #     #self.select_points[self.select_window] = (current_data_y >=  y_lim)
+    #     self.select_points[self.select_window] = (current_data_y >= percent)
+    #     return None
         
     def load_data(self,x,y):
         self.data = np.array([x,y])
         self.select_points = np.zeros(len(x))
+        self.points_in_window = len(self.data[0][np.where(self.data[0] <= self.data[0][0]+self.distx)])
         return None
     
     def scan(self):
-        left_lim = self.data[0][0]
-        while left_lim < self.data[0][-1]:
-            right_lim = left_lim + self.distx
-            self.select_window = np.where((self.data[0]>=left_lim)&(self.data[0]<=right_lim))
-            #self.current_sig = np.sqrt(self.data[1][self.select_window]).mean()
-            #self.current_sig = self.data[1][self.select_window].std()
-            self.above_sigma()
-            left_lim = right_lim
-            #self.view_window()
+        split_order_into = int(np.ceil(len(self.data[0])/self.points_in_window))
+        split_order_x = np.array_split(self.data[0], split_order_into)
+        split_order_y = np.array_split(self.data[1], split_order_into)
+        for i in range(len(split_order_y)):
+            dex = np.where((self.data[0] >= split_order_x[i][0])&(self.data[0] <= split_order_x[i][-1]))
+            percent = np.percentile(split_order_y[i], self.depth)
+            self.select_points[dex] = (split_order_y[i] >= percent)
         return None
+
+
+
+        # left_lim = self.data[0][0]
+        # while left_lim < self.data[0][-1]:
+        #     right_lim = left_lim + self.distx
+        #     self.select_window = np.where((self.data[0]>=left_lim)&(self.data[0]<=right_lim))
+        #     #self.current_sig = np.sqrt(self.data[1][self.select_window]).mean()
+        #     #self.current_sig = self.data[1][self.select_window].std()
+        #     self.above_sigma()
+        #     left_lim = right_lim
+        #     #self.view_window()
+        # return None
             
-    def view_window(self):
-        percent = np.percentile(self.data[1][self.select_window], self.depth)
-        fig = plt.figure()
-        ax = fig.add_subplot(121)
-        ax.scatter(self.data[0][self.select_window], self.data[1][self.select_window], c = '#cccccc', alpha = 0.75)
-        bool_points = (self.select_points == 1)
-        ax.scatter(self.data[0][bool_points],self.data[1][bool_points], c = 'g')
-        ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
-                [self.data[1][self.select_window].max(),self.data[1][self.select_window].max()], 'k--')
+#     def view_window(self):
+#         percent = np.percentile(self.data[1][self.select_window], self.depth)
+#         fig = plt.figure()
+#         ax = fig.add_subplot(121)
+#         ax.scatter(self.data[0][self.select_window], self.data[1][self.select_window], c = '#cccccc', alpha = 0.75)
+#         bool_points = (self.select_points == 1)
+#         ax.scatter(self.data[0][bool_points],self.data[1][bool_points], c = 'g')
 #         ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
-#                 [self.data[1][self.select_window].max() - self.depth*self.current_sig,
-#                  self.data[1][self.select_window].max() - self.depth*self.current_sig],'g--')
-        ax.set_xlim([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]])
-        plt.axhline(percent, color='k', linestyle='dashed', linewidth=1)
-        hist = fig.add_subplot(122)
-        hist.hist(self.data[1][self.select_window])
-        plt.axvline(percent, color='k', linestyle='dashed', linewidth=1)
-        plt.show()
-        return None
+#                 [self.data[1][self.select_window].max(),self.data[1][self.select_window].max()], 'k--')
+# #         ax.plot([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]],
+# #                 [self.data[1][self.select_window].max() - self.depth*self.current_sig,
+# #                  self.data[1][self.select_window].max() - self.depth*self.current_sig],'g--')
+#         ax.set_xlim([self.data[0][self.select_window][0], self.data[0][self.select_window][-1]])
+#         plt.axhline(percent, color='k', linestyle='dashed', linewidth=1)
+#         hist = fig.add_subplot(122)
+#         hist.hist(self.data[1][self.select_window])
+#         plt.axvline(percent, color='k', linestyle='dashed', linewidth=1)
+#         plt.show()
+#         return None
         
     def view_selected(self):
         fig = plt.figure(figsize=(15,5))

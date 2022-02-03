@@ -103,12 +103,16 @@ def get_line_window(line, wave, flux, left_bound, right_bound,
         dy1_left = np.where((dy[left_look] < dy_l)&(dy[left_look] > (-1)*dy_l))
         if len(wave[window][left_look][dy1_left]) ==0:
             print('line ',line,' very close to edge or dy selection value too small')
+            print('will attempt to remeasure, if not possible, add line to exclude lines list in .measure_all_ew() function')
+            plt.clf()
             plt.plot(wave[window],flux[window])
             plt.plot([line,line],[0.95,1.0], 'k')
             plt.annotate(str(line), xy=[line,1.01])
             plt.plot([best_line_guess,best_line_guess],[0.95,1.0], 'k--')
             plt.annotate(str(best_line_guess), xy=[best_line_guess,1.01])
             plt.show()
+            return 1,1,0,0
+
         else:
             boundaries[0] = wave[window][left_look][dy1_left][-1]
     else:
@@ -118,12 +122,16 @@ def get_line_window(line, wave, flux, left_bound, right_bound,
         dy1_right = np.where((dy[right_look] < dy_r)&(dy[right_look] > (-1)*dy_r))
         if len(wave[window][right_look][dy1_right]) ==0:
             print('line ',line,' very close to edge or dy selection value too small')
+            print('will attempt to remeasure, if not possible, add line to exclude lines list in .measure_all_ew() function')
+            plt.clf()
             plt.plot(wave[window],flux[window])
             plt.plot([line,line],[0.95,1.0], 'k')
             plt.annotate(str(line), xy=[line,1.01])
             plt.plot([best_line_guess,best_line_guess],[0.95,1.0], 'k--')
             plt.annotate(str(best_line_guess), xy=[best_line_guess,1.01])
             plt.show()
+            return 0,0,1,1
+
         else:
             boundaries[1] = wave[window][right_look][dy1_right][0]
     else:
@@ -311,7 +319,28 @@ def make_plots_folder():
         subprocess.call(cmd, shell=True)
     
 
+def replace_w(array, replace_value, replace_with = 'med' ):
+    """
+        Use to replace individual values with either median or average of the order
+        or with a specific value
+        array format: [[order1],[order2],...] orderN = [x1,x2,x3,...]
+        replace_value - value to be replaced
+        repace_with - 'med', 'avg', or value to replace with
+    """
 
+    for i in range(len(array)):
+        gd_0 = np.where(array[i] == replace_value)
+        gd = np.where(array[i] != replace_value)
+
+        for j in gd_0:
+            if replace_with == 'med':
+                array[i][j] = np.median(array[i][gd])
+            elif replace_with == 'avg':
+                array[i][j] = np.avgerage(array[i][gd])
+            else:
+                array[i][j] = replace_with
+            
+    return None
 
 #-------------------------------------------------------------DICTIONARY--------------------------------------------------------------#
 ELEMENTS = {1:'H I',2:'He I',3:'Li I',4:'Be I',5:'B I',6:'C I',7:'N I',8:'O I',9:'F I',10:'Ne I',11:'Na I',12:'Mg I',13:'Al I',
