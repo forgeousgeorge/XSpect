@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 #from scipy.optimize import fmin
 from scipy.stats import chisquare
 from scipy.interpolate import interp1d
-from scipy.integrate import simps
+from scipy.integrate import simpson
 from numpy.random import multivariate_normal
 from astropy.io import fits
 from scipy.optimize import curve_fit
@@ -112,10 +112,10 @@ class Spectrum_Data():
             #Replace un-normalized points with value before it
             #This should only be replacing the last point in the 
             #spectrum that is always missed by normalize
-            err_est = self.obs_err[i]/self.pred_all[i]
-            non_norm_points = np.where(self.normalized_flux[i] > np.average(self.normalized_flux[i][self.continuum[i]]+err_est[self.continuum[i]]*100))
-            #replace non norm points
-            self.normalized_flux[i][non_norm_points] = self.normalized_flux[i][non_norm_points[0]-1]
+            # err_est = self.obs_err[i]/self.pred_all[i]
+            # non_norm_points = np.where(self.normalized_flux[i] > np.average(self.normalized_flux[i][self.continuum[i]]+err_est[self.continuum[i]]*100))
+            # #replace non norm points
+            # self.normalized_flux[i][non_norm_points] = self.normalized_flux[i][non_norm_points[0]-1]
 
         return None
 
@@ -127,7 +127,7 @@ class Spectrum_Data():
         else:
             #clipped = False
             clipl = 0
-            clipr = -1
+            clipr = len(self.flux[order])
  
         err = np.sqrt(self.flux[order][clipl:clipr])
         continuum_scan_obj = Continuum_scan(window_width, continuum_depth)
@@ -253,10 +253,21 @@ class Spectrum_Data():
             for j in range(len(self.shifted_wavelength[i])):
                 #difference between one shifted wavelength value and all B wavelength values
                 #element closest to zero is location of closest wavelength values
-                diff_array = abs(self.shifted_wavelength[i][j] - spectB.wavelength[b_order[i]])
+                ed = 5
+                if j < ed:
+                    le = 0
+                    re = j + ed
+                elif j > len(self.shifted_wavelength[i])-ed:
+                    le = j - ed
+                    re = len(self.shifted_wavelength[i]) + 1
+                else:
+                    le = j - ed
+                    re = j + ed
+                near_point = spectB.wavelength[b_order[i][0][0]][le:re]
+                diff_array = abs(self.shifted_wavelength[i][j] - near_point) #This is too wasteful, grab just a small portion of the second array not the whole array
                 loc = np.where(diff_array == diff_array.min())
                 #add A flux with B flux at location where diff = 0
-                combined_flux[j] = self.flux[i][j] + spectB.flux[b_order[i]][loc]
+                combined_flux[j] = self.flux[i][j] + spectB.flux[b_order[i][0][0]][loc]
             #print(combined_flux)
             #collect flux values for each order
             combined_flux_orders[i] = combined_flux
@@ -515,9 +526,12 @@ class Spectrum_Data():
                 base_values[j] = bf[3]
 
                 #simpson's rule integration
-                x = np.linspace(bf[1]-1.0,bf[1]+1.0, 1000) #integration limits in 1000 steps
-                y = gauss_model(x,bf[0],bf[1],bf[2],abs(bf[3]))-abs(bf[3])
-                simp_values[j] = simps(y,x)*1000
+                # line_inpterp = interp1d(measure_x_array, flat_wing, kind='linear', bounds_error = False)
+                # x = np.linspace(flat_wing[0], flat_wing[-1],100) 
+                # result_y = line_inpterp(x)
+                
+                #y =  gauss_model(x,bf[0],bf[1],bf[2],abs(bf[3]))-abs(bf[3])
+                simp_values[j] = simpson((-1)*(samples[j]-1), xtest)*1000 #integrates each sample data
             else:
                 samp_ew[j] = 0
                 a_values[j] = 0
@@ -880,17 +894,6 @@ class Continuum_scan():
         #Relates to how deeply to move selection box into data
         self.depth = depth
         return None
-    
-    # def above_sigma(self): #
-    #     #within window, select points above (max value - depth*sigma)
-    #     current_data_x = self.data[0][self.select_window]
-    #     current_data_y = self.data[1][self.select_window]
-    #     #top_value = current_data_y.max()
-    #     #y_lim = top_value - self.depth*self.current_sig
-    #     percent = np.percentile(current_data_y, self.depth)
-    #     #self.select_points[self.select_window] = (current_data_y >=  y_lim)
-    #     self.select_points[self.select_window] = (current_data_y >= percent)
-    #     return None
         
     def load_data(self,x,y):
         self.data = np.array([x,y])

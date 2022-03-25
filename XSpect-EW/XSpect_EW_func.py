@@ -336,7 +336,7 @@ def replace_w(array, replace_value, replace_with = 'med' ):
             if replace_with == 'med':
                 array[i][j] = np.median(array[i][gd])
             elif replace_with == 'avg':
-                array[i][j] = np.avgerage(array[i][gd])
+                array[i][j] = np.average(array[i][gd])
             else:
                 array[i][j] = replace_with
             
