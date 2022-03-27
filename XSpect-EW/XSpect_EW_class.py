@@ -264,18 +264,20 @@ class Spectrum_Data():
                     le = j - ed
                     re = j + ed
                 near_point = spectB.wavelength[b_order[i][0][0]][le:re]
-                diff_array = abs(self.shifted_wavelength[i][j] - near_point) #This is too wasteful, grab just a small portion of the second array not the whole array
+                diff_array = abs(self.shifted_wavelength[i][j] - near_point)
                 loc = np.where(diff_array == diff_array.min())
                 #add A flux with B flux at location where diff = 0
-                combined_flux[j] = self.flux[i][j] + spectB.flux[b_order[i][0][0]][loc]
+                combined_flux[j] = self.flux[i][j] + spectB.flux[b_order[i][0][0]][le:re][loc]
             #print(combined_flux)
             #collect flux values for each order
             combined_flux_orders[i] = combined_flux
+            self.obs_err[i] = np.sqrt(combined_flux)
             
-            plt.plot(self.shifted_wavelength[i], self.flux[i], marker = '.', label = 'A')
-            plt.plot(spectB.wavelength[b_order[i][0][0]], spectB.flux[b_order[i][0][0]], marker = '.', label = 'B')
-            plt.plot(self.shifted_wavelength[i], combined_flux, marker = '.', label = 'A+B')
-            plt.xlim([np.median(self.shifted_wavelength[i]-1),np.median(self.shifted_wavelength[i]+1)])
+            plt.plot(self.shifted_wavelength[i], self.flux[i], label = 'A')
+            plt.plot(spectB.wavelength[b_order[i][0][0]], spectB.flux[b_order[i][0][0]], label = 'B')
+            plt.plot(self.shifted_wavelength[i], combined_flux, label = 'A+B')
+            plt.xlim([np.median(self.shifted_wavelength[i]-(self.shifted_wavelength[i].max() - self.shifted_wavelength[i].min())/10),
+                np.median(self.shifted_wavelength[i]+(self.shifted_wavelength[i].max() - self.shifted_wavelength[i].min())/10)])
             plt.grid()
             plt.legend()
             plt.show()
