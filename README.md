@@ -1,11 +1,12 @@
 # XSpect
-Python3 code to measure equivalent widths from high-resolution spectra. Can be used in combination with pymoogi or MOOG
+Python3 code to measure equivalent widths from high-resolution spectra. Output file can be used with pymoogi or MOOG.
 
 ## XSpect - EW (Equivalent Widths)
- - Opens Keck HIRES .fits files
+ - Loads spectral data from Keck HIRES fits files
+ - Includes options for loading data from arrays
  - Normalizes reduced data
- - Applies Waveshift correction (comparison spectrum required)
- - Measures Equivalent Widths of input line list (line list required, sample provided)
+ - Applies waveshift correction (comparison spectrum required)
+ - Measures equivalent widths of input line list (line list required, sample provided)
  - Outputs pymoogi readable file used to derive and determine stellar parameters and elemental abundances
 
 ### Python Required Packages
@@ -13,4 +14,4 @@ Python3 code to measure equivalent widths from high-resolution spectra. Can be u
  - Matplotlib
  - Scipy
  - Astropy 
- - George - Gaussian Process Regression
+ - george - Gaussian Process Regression
