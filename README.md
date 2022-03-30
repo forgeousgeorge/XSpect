@@ -1,6 +1,9 @@
 # XSpect
 Python3 code to measure equivalent widths from high-resolution spectra. Output file can be used with pymoogi or MOOG.
 
+## Install
+pip install XSpect-EW
+
 ## XSpect - EW (Equivalent Widths)
  - Loads spectral data from Keck HIRES fits files
  - Includes options for loading data from arrays
