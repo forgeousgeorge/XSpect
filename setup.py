@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
 
-from XSpect_EW import __version__
+from XSpect_EW_package import __version__
 
 setup(
-    name='XSpect_EW',
+    name='XSpect_EW_package',
     version=__version__,
 
     url='https://github.com/forgeousgeorge/XSpect',
