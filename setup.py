@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='XSpect_EW_package',
+    name='XSpect-EW',
     description='Python3 - User guided equivalent wideth measurement and analysis tool for stellar absorption spectra',
     version='1.0.2',
 
