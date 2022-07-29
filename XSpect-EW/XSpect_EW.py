@@ -673,7 +673,12 @@ class Spectrum_Data():
                             compare_window_sun = np.where((sun.wavelength[i] >= sun_window[0])&(sun.wavelength[i] <= sun_window[1]))
                             spect_interp = interp1d(self.shifted_wavelength[order][compare_window_star],self.normalized_flux[order][compare_window_star], kind = 'linear')
                             result_y = spect_interp(sun.wavelength[i][compare_window_sun])
-                            chi[k] = chisquare(result_y, sun.normalized_flux[i][compare_window_sun])[0]             
+
+                            diff = (result_y - sun.normalized_flux[i][compare_window_sun])**2
+                            chi[k] = np.sum(diff)
+
+                            #chi[k] = chisquare(result_y, constraint_value)[0]
+                            #chi[k] = chisquare(result_y, sun.normalized_flux[i][compare_window_sun])[0]             
                         break
                 if order_found:
                     break
@@ -884,7 +889,12 @@ class Spectrum_Data():
         best_bf = np.array([a_values[np.where(a_values!=0)].mean(),mu_values[np.where(mu_values!=0)].mean(),sig_values[np.where(sig_values!=0)].mean(),base_values[np.where(base_values!=0)].mean()])
         fit_gauss = gauss_model(xtest,best_bf[0],best_bf[1],best_bf[2],best_bf[3])*(-1)+1
         #set values for line
-        self.lines_gauss_Xsquare[i] = chisquare(fit_gauss[only_line], flat_wing[only_line])[0]
+
+        diff = (fit_gauss[only_line] - flat_wing[only_line])**2
+        self.lines_gauss_Xsquare[i] = np.sum(diff)
+
+
+        #self.lines_gauss_Xsquare[i] = chisquare(fit_gauss[only_line], flat_wing[only_line])[0]
         self.lines_bf_params[i] = best_bf
         if len(samp_ew[np.where(samp_ew==0)]) == len(samples):
             self.lines_ew[i] = 0
